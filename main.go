@@ -19,32 +19,33 @@ func main() {
 	for i := 0; i < 10; i++ {
 		id := rnd.Intn(10) + 1
 
-		wg.Add(2) // How many concurrent activities are we creating
-		go func(id int, wg *sync.WaitGroup, m *sync.RWMutex, ch chan<- Book) {
-			if b, ok := queryCache(id, m); ok {
-				ch <- b
+		// How many concurrent activities are we creating
+		wg.Add(2)
+		go func(id int, wg *sync.WaitGroup, m *sync.RWMutex, ch chan<- Book) { // send-only channel
+			if b, ok := queryCache(id, m); ok { // we only return values if we find in the cache
+				ch <- b // Send message to the channel if we found the book in the cache
 			}
 			wg.Done()
 		}(id, wg, m, cacheCh)
 
-		go func(id int, wg *sync.WaitGroup, m *sync.RWMutex, ch chan<- Book) {
-			if b, ok := queryDatabase(id); ok {
+		go func(id int, wg *sync.WaitGroup, m *sync.RWMutex, ch chan<- Book) { // send-only channel
+			if b, ok := queryDatabase(id); ok { // always generates a result
 				m.Lock()
 				cache[id] = b
 				m.Unlock()
-				ch <- b
+				ch <- b // Send message to the channel if we found the book in the database
 			}
 			wg.Done()
 		}(id, wg, m, dbCh)
 
 		// create one goroutine per query to handle response
-		go func(cacheCh, dbCh <-chan Book) {
+		go func(cacheCh, dbCh <-chan Book) { // receive-only channel
 			select {
-			case b := <-cacheCh:
+			case b := <-cacheCh: // receive message from cache
 				fmt.Println("from cache")
 				fmt.Println(b)
-				<-dbCh
-			case b := <-dbCh:
+				<-dbCh // because we don't want to block the second Goroutine
+			case b := <-dbCh: // receive message from database
 				fmt.Println("from database")
 				fmt.Println(b)
 			}
@@ -64,7 +65,7 @@ func queryCache(id int, m *sync.RWMutex) (Book, bool) {
 }
 
 func queryDatabase(id int) (Book, bool) {
-	time.Sleep(100 * time.Millisecond) // artificial break
+	time.Sleep(100 * time.Millisecond) // simulate database delay
 	for _, b := range books {
 		if b.ID == id {
 			cache[id] = b
